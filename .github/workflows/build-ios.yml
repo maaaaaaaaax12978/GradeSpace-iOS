@@ -1,0 +1,82 @@
+name: Build iPhone IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - GradeSpace/**
+      - scripts/**
+      - project.yml
+      - .github/workflows/build-ios.yml
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - name: Download project
+        uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Generate Xcode project
+        run: |
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+          xcodegen generate
+
+      - name: Check web logic
+        run: |
+          node --check GradeSpace/Web/app.js
+          node --check GradeSpace/Web/core.js
+          node scripts/check.cjs
+
+      - name: Build for a real iPhone
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project GradeSpace.xcodeproj \
+            -scheme GradeSpace \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY='' \
+            build 2>&1 | tee build.log
+
+      - name: Package unsigned IPA for Scarlet
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f build/Build/Products/Release-iphoneos/GradeSpace.app/GradeSpace
+          test -f build/Build/Products/Release-iphoneos/GradeSpace.app/Web/index.html
+          mkdir -p package/Payload
+          cp -R build/Build/Products/Release-iphoneos/GradeSpace.app package/Payload/
+          cd package
+          zip -r -q ../GradeSpace-unsigned.ipa Payload
+
+      - name: Download your IPA here
+        uses: actions/upload-artifact@v4
+        with:
+          name: GradeSpace-IPA
+          path: GradeSpace-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Save build log if something fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: GradeSpace-build-log
+          path: build.log
+          if-no-files-found: ignore
+          retention-days: 7
