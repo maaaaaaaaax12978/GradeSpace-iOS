@@ -3,10 +3,10 @@ name: Build iPhone IPA
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, codex/native-ios]
     paths:
       - GradeSpace/**
-      - scripts/**
+      - GradeSpaceTests/**
       - project.yml
       - .github/workflows/build-ios.yml
 
@@ -15,28 +15,31 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-15
-    timeout-minutes: 25
+    runs-on: macos-26
+    timeout-minutes: 30
     steps:
       - name: Download project
         uses: actions/checkout@v4
-
       - name: Show Xcode version
         run: xcodebuild -version
-
-      - name: Generate Xcode project
+      - name: Generate native Xcode project
         run: |
           if ! command -v xcodegen >/dev/null 2>&1; then
             brew install xcodegen
           fi
           xcodegen generate
-
-      - name: Check web logic
+      - name: Test calculations, migration, and persistence
+        shell: bash
         run: |
-          node --check GradeSpace/Web/app.js
-          node --check GradeSpace/Web/core.js
-          node scripts/check.cjs
-
+          set -euo pipefail
+          DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import sys,json; d=json.load(sys.stdin); print(next(x["udid"] for devices in d["devices"].values() for x in devices if "iPhone" in x["name"]))')
+          xcodebuild test \
+            -project GradeSpace.xcodeproj \
+            -scheme GradeSpace \
+            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
+            -parallel-testing-enabled NO \
+            -resultBundlePath TestResults.xcresult \
+            CODE_SIGNING_ALLOWED=NO 2>&1 | tee tests.log
       - name: Build for a real iPhone
         shell: bash
         run: |
@@ -52,31 +55,32 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY='' \
             build 2>&1 | tee build.log
-
-      - name: Package unsigned IPA for Scarlet
+      - name: Package unsigned native IPA
         shell: bash
         run: |
           set -euo pipefail
-          test -f build/Build/Products/Release-iphoneos/GradeSpace.app/GradeSpace
-          test -f build/Build/Products/Release-iphoneos/GradeSpace.app/Web/index.html
+          APP=build/Build/Products/Release-iphoneos/GradeSpace.app
+          test -f "$APP/GradeSpace"
+          test ! -d "$APP/Web"
           mkdir -p package/Payload
-          cp -R build/Build/Products/Release-iphoneos/GradeSpace.app package/Payload/
+          cp -R "$APP" package/Payload/
           cd package
           zip -r -q ../GradeSpace-unsigned.ipa Payload
-
       - name: Download your IPA here
         uses: actions/upload-artifact@v4
         with:
           name: GradeSpace-IPA
           path: GradeSpace-unsigned.ipa
           if-no-files-found: error
-          retention-days: 7
-
-      - name: Save build log if something fails
-        if: failure()
+          retention-days: 30
+      - name: Save test results and build logs
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: GradeSpace-build-log
-          path: build.log
+          name: GradeSpace-validation
+          path: |
+            tests.log
+            build.log
+            TestResults.xcresult
           if-no-files-found: ignore
           retention-days: 7
