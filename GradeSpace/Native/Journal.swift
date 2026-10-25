@@ -143,3 +143,23 @@ enum GradeMath {
         return (sum + 2) / 4
     }
 }
+
+enum Display {
+    static func average(_ marks: [Mark]) -> String {
+        let totals = GradeMath.totals(marks)
+        guard totals.weight > 0 else { return "—" }
+        // Round half up using integers, including exact cases such as 4.595.
+        let hundredths = (totals.sum * 200 + totals.weight) / (totals.weight * 2)
+        return threshold(hundredths)
+    }
+    static func threshold(_ n: Int) -> String { String(format: "%d,%02d", n / 100, n % 100) }
+    static func parseThreshold(_ text: String) -> Int? {
+        let value = text.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ",", with: ".")
+        guard value.range(of: #"^[1-5](\.[0-9]{1,2})?$"#, options: .regularExpression) != nil else { return nil }
+        let parts = value.split(separator: ".")
+        let fraction = parts.count == 2 ? String(parts[1]).padding(toLength: 2, withPad: "0", startingAt: 0) : "00"
+        guard let whole = Int(parts[0]), let cents = Int(fraction) else { return nil }
+        return whole * 100 + cents
+    }
+}
+

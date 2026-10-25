@@ -7,6 +7,7 @@ on:
     paths:
       - GradeSpace/**
       - GradeSpaceTests/**
+      - Package.swift
       - project.yml
       - .github/workflows/build-ios.yml
 
@@ -28,19 +29,12 @@ jobs:
             brew install xcodegen
           fi
           xcodegen generate
-      - name: Test calculations, migration, and persistence
-        timeout-minutes: 12
+      - name: Test native calculations, migration, and persistence
+        timeout-minutes: 5
         shell: bash
         run: |
           set -euo pipefail
-          DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import sys,json; d=json.load(sys.stdin); print(next(x["udid"] for devices in d["devices"].values() for x in devices if "iPhone" in x["name"]))')
-          xcodebuild test \
-            -project GradeSpace.xcodeproj \
-            -scheme GradeSpace \
-            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
-            -parallel-testing-enabled NO \
-            -resultBundlePath TestResults.xcresult \
-            CODE_SIGNING_ALLOWED=NO 2>&1 | tee tests.log
+          swift test 2>&1 | tee tests.log
       - name: Build for a real iPhone
         shell: bash
         run: |
@@ -82,6 +76,5 @@ jobs:
           path: |
             tests.log
             build.log
-            TestResults.xcresult
           if-no-files-found: ignore
           retention-days: 7

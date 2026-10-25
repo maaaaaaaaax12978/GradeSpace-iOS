@@ -1,5 +1,9 @@
 import XCTest
+#if canImport(GradeSpace)
 @testable import GradeSpace
+#else
+@testable import GradeCore
+#endif
 
 final class JournalTests: XCTestCase {
     private func marks(_ values: [Int]) -> [Mark] { values.map { Mark(value: $0) } }
@@ -92,7 +96,7 @@ final class JournalTests: XCTestCase {
     }
 
     @MainActor
-    func testPersistenceAndSafeRecovery() throws {
+    func testPersistenceAndSafeRecovery() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
