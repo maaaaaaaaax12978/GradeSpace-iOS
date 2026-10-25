@@ -17,8 +17,11 @@ private let subjectColors: [Color] = [.indigo, .teal, .orange, .pink, .blue, .pu
 
 enum Display {
     static func average(_ marks: [Mark]) -> String {
-        guard let n = GradeMath.average(marks) else { return "—" }
-        return String(format: "%.2f", n).replacingOccurrences(of: ".", with: ",")
+        let totals = GradeMath.totals(marks)
+        guard totals.weight > 0 else { return "—" }
+        // Round half up using integers, including exact cases such as 4.595.
+        let hundredths = (totals.sum * 200 + totals.weight) / (totals.weight * 2)
+        return threshold(hundredths)
     }
     static func threshold(_ n: Int) -> String { String(format: "%d,%02d", n / 100, n % 100) }
     static func parseThreshold(_ text: String) -> Int? {

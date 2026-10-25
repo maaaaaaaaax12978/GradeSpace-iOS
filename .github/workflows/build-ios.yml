@@ -29,6 +29,7 @@ jobs:
           fi
           xcodegen generate
       - name: Test calculations, migration, and persistence
+        timeout-minutes: 12
         shell: bash
         run: |
           set -euo pipefail
