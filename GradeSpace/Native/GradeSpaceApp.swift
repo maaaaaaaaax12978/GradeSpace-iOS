@@ -106,6 +106,7 @@ struct QuarterPicker: View {
                     Text(active ? "\(quarterRoman[quarter - 1]) четверть" : quarterRoman[quarter - 1])
                         .font(.headline).lineLimit(1).minimumScaleFactor(0.75)
                         .foregroundStyle(active ? Color.primary : Color.secondary)
+                        .padding(.horizontal, 8)
                         .frame(maxWidth: .infinity, minHeight: rowHeight)
                         .contentShape(Capsule())
                         .background {
@@ -683,6 +684,18 @@ struct TrialPanel: View {
                     .accessibilityValue(String(trial.quantity(for: grade)))
                     .accessibilityIdentifier("trial.grade.\(grade)")
             }
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Средний с примеркой").font(.caption).foregroundStyle(.secondary)
+                    Text(Display.average(preview)).font(.largeTitle.bold().monospacedDigit())
+                        .contentTransition(.numericText()).accessibilityIdentifier("trial.average")
+                }
+                Spacer(minLength: 10)
+                if let grade = GradeMath.grade(preview, thresholds: store.journal.thresholds) {
+                    Text("Итог \(grade)").font(.headline).padding(.horizontal, 14).padding(.vertical, 10)
+                        .background(Color.teal.opacity(0.12), in: Capsule())
+                }
+            }.padding(.vertical, 8)
             let needed = GradeMath.fivesNeeded(preview, threshold: store.journal.thresholds.five)
             Label(needed.map { $0 == 0 ? "Пятёрка уже в прогнозе" : "До пятёрки: ещё \($0) оценок «5» с весом 1" } ?? "При пороге 5,00 достичь пятёрки новыми оценками нельзя", systemImage: "scope")
                 .font(.caption).foregroundStyle(.secondary)
@@ -779,9 +792,16 @@ struct ThresholdEditor: View {
                         Text("Пятёрка начинается с")
                         Spacer()
                         TextField("4,60", text: $five).keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing).frame(width: 95)
+                            .multilineTextAlignment(.trailing).frame(width: 82)
                             .accessibilityLabel("Общий порог: пятёрка от")
                             .accessibilityIdentifier("threshold.common")
+                        if !five.isEmpty {
+                            Button { five = "" } label: {
+                                Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                                    .frame(width: 44, height: 44).contentShape(Rectangle())
+                            }.buttonStyle(.plain).accessibilityLabel("Очистить порог")
+                                .accessibilityIdentifier("threshold.clear")
+                        }
                     }
                 } header: { Text("Один порог для всех оценок") } footer: {
                     Text("Например, 4,60 для пятёрки автоматически означает 3,60 для четвёрки, 2,60 для тройки и 1,60 для двойки. Правило применяется также к расчётной годовой.")

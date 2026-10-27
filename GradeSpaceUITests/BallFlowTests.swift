@@ -17,7 +17,7 @@ final class BallFlowTests: XCTestCase {
         XCTAssertTrue(stepper.waitForExistence(timeout: 5))
         stepper.buttons.element(boundBy: 1).tap()
         stepper.buttons.element(boundBy: 1).tap()
-        XCTAssertTrue(app.staticTexts["4,75"].exists)
+        XCTAssertEqual(app.staticTexts["trial.average"].label, "4,75")
         let save = app.buttons["trial.save"]
         reveal(save, in: app)
         XCTAssertTrue(save.isEnabled)
@@ -29,12 +29,13 @@ final class BallFlowTests: XCTestCase {
         app.buttons["Изменить общий порог"].tap()
         let field = app.textFields["threshold.common"]
         XCTAssertTrue(field.waitForExistence(timeout: 5))
+        app.buttons["threshold.clear"].tap()
         field.tap()
-        let old = (field.value as? String) ?? "4,60"
-        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: old.count + 2) + "4,50")
-        XCTAssertTrue(app.staticTexts["от 3,50"].exists)
+        field.typeText("4,50")
+        XCTAssertEqual(field.value as? String, "4,50")
         snapshot("03-common-threshold")
         app.buttons["Сохранить"].tap()
+        XCTAssertTrue(app.staticTexts["от 3,50"].waitForExistence(timeout: 5))
 
         app.tabBars.buttons["Предметы"].tap()
         let review = app.buttons["quarter.review.all"]
