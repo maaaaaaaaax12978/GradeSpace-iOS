@@ -25,12 +25,44 @@ struct Subject: Codable, Identifiable, Equatable {
 }
 
 struct Thresholds: Codable, Equatable {
-    // Integer hundredths make 4.60 an exact, inclusive boundary.
-    var three = 250
-    var four = 350
-    var five = 460
-    var isValid: Bool { 150 < three && three < four && four < five && five <= 500 }
-    func value(for grade: Int) -> Int { grade == 5 ? five : grade == 4 ? four : grade == 3 ? three : 100 }
+    // One school-wide rounding rule: 60 means 4.60 / 3.60 / 2.60 / 1.60.
+    var roundingHundredths = 60
+    var three: Int { value(for: 3) }
+    var four: Int { value(for: 4) }
+    var five: Int {
+        get { value(for: 5) }
+        set { roundingHundredths = newValue - 400 }
+    }
+    var isValid: Bool { (0...100).contains(roundingHundredths) }
+    init(roundingHundredths: Int = 60) { self.roundingHundredths = roundingHundredths }
+    init(five: Int) { roundingHundredths = five - 400 }
+    func value(for grade: Int) -> Int { grade <= 1 ? 100 : (grade - 1) * 100 + roundingHundredths }
+
+    private enum CodingKeys: String, CodingKey { case roundingHundredths, three, four, five }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        if let common = try c.decodeIfPresent(Int.self, forKey: .roundingHundredths) {
+            roundingHundredths = common
+        } else {
+            let oldFive = try c.decodeIfPresent(Int.self, forKey: .five) ?? 460
+            guard (201...500).contains(oldFive) else {
+                throw DecodingError.dataCorruptedError(forKey: .five, in: c, debugDescription: "Неверный порог")
+            }
+            // Earlier versions allowed unrelated boundaries. Adopt the fraction of
+            // their five-boundary as the new common rule; exact integers mean 1.00.
+            roundingHundredths = oldFive >= 400 ? oldFive - 400 : (oldFive % 100 == 0 ? 100 : oldFive % 100)
+        }
+        guard isValid else {
+            throw DecodingError.dataCorruptedError(forKey: .roundingHundredths, in: c, debugDescription: "Порог должен быть от 0,00 до 1,00")
+        }
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(roundingHundredths, forKey: .roundingHundredths)
+        try c.encode(three, forKey: .three)
+        try c.encode(four, forKey: .four)
+        try c.encode(five, forKey: .five)
+    }
 }
 
 struct Journal: Codable, Equatable {
@@ -47,7 +79,7 @@ struct Journal: Codable, Equatable {
               let version = root["version"] as? Int, [1, 2].contains(version),
               var subjects = root["subjects"] as? [[String: Any]] else { throw JournalError.invalid }
         root["version"] = 2
-        if root["thresholds"] == nil { root["thresholds"] = ["three": 250, "four": 350, "five": 460] }
+        if root["thresholds"] == nil { root["thresholds"] = ["roundingHundredths": 60] }
         if root["haptics"] == nil { root["haptics"] = true }
         if root["theme"] == nil { root["theme"] = "system" }
         if root["lastQuarter"] == nil { root["lastQuarter"] = 1 }
@@ -87,6 +119,62 @@ struct Journal: Codable, Equatable {
             }
         }
     }
+
+    func suggestedFinals(for quarter: Int) -> [String: Int] {
+        guard (1...4).contains(quarter) else { return [:] }
+        return Dictionary(uniqueKeysWithValues: subjects.compactMap { s in
+            guard !s.closedQuarters.contains(quarter),
+                  let grade = GradeMath.grade(s.marks(in: quarter), thresholds: thresholds) else { return nil }
+            return (s.id, grade)
+        })
+    }
+
+    mutating func finishQuarter(_ quarter: Int, finals: [String: Int]) throws {
+        guard (1...4).contains(quarter) else { throw QuarterError.invalidQuarter }
+        let open = subjects.filter { !$0.closedQuarters.contains(quarter) }
+        guard !open.isEmpty else { throw QuarterError.noOpenSubjects }
+        // Validate every result before changing any subject: all-or-nothing.
+        guard Set(finals.keys) == Set(open.map(\.id)), finals.values.allSatisfy({ (1...5).contains($0) }) else {
+            throw QuarterError.incompleteFinals
+        }
+        for i in subjects.indices where !subjects[i].closedQuarters.contains(quarter) {
+            subjects[i].quarterFinals[String(quarter)] = finals[subjects[i].id]
+            subjects[i].closedQuarters.append(quarter)
+            subjects[i].yearFinal = nil
+        }
+    }
+}
+
+enum QuarterError: LocalizedError {
+    case invalidQuarter, noOpenSubjects, incompleteFinals
+    var errorDescription: String? {
+        switch self {
+        case .invalidQuarter: return "Выберите четверть от I до IV."
+        case .noOpenSubjects: return "Все предметы этой четверти уже завершены."
+        case .incompleteFinals: return "Укажите итоговую оценку для каждого незавершённого предмета."
+        }
+    }
+}
+
+struct TrialGrades: Equatable {
+    private(set) var quantities = [0, 0, 0, 0, 0]
+    var count: Int { quantities.reduce(0, +) }
+    func quantity(for grade: Int) -> Int { (1...5).contains(grade) ? quantities[grade - 1] : 0 }
+    mutating func setQuantity(_ count: Int, for grade: Int) {
+        guard (1...5).contains(grade) else { return }
+        quantities[grade - 1] = min(100, max(0, count))
+    }
+    func previewMarks(in quarter: Int) -> [Mark] {
+        (1...5).compactMap { grade in
+            let count = quantity(for: grade)
+            return count == 0 ? nil : Mark(value: grade, weight: count, ghost: true, quarter: quarter)
+        }
+    }
+    func expandedMarks(in quarter: Int) -> [Mark] {
+        (1...5).flatMap { grade in
+            (0..<quantity(for: grade)).map { _ in Mark(value: grade, ghost: true, quarter: quarter) }
+        }
+    }
 }
 
 private func fractionalDate(_ text: String) -> Date? {
@@ -116,10 +204,10 @@ enum GradeMath {
     static func grade(_ marks: [Mark], thresholds: Thresholds) -> Int? {
         let t = totals(marks)
         guard t.weight > 0 else { return nil }
-        for grade in stride(from: 5, through: 3, by: -1) {
+        for grade in stride(from: 5, through: 2, by: -1) {
             if t.sum * 100 >= thresholds.value(for: grade) * t.weight { return grade }
         }
-        return t.sum * 100 >= 150 * t.weight ? 2 : 1
+        return 1
     }
 
     static func fivesNeeded(_ marks: [Mark], threshold: Int) -> Int? {
@@ -136,11 +224,11 @@ enum GradeMath {
         return grade(s.marks(in: quarter, forecast: forecast), thresholds: thresholds)
     }
 
-    static func annual(_ s: Subject) -> Int? {
+    static func annual(_ s: Subject, thresholds: Thresholds = Thresholds()) -> Int? {
         guard s.closedQuarters.count == 4 else { return nil }
         if let final = s.yearFinal { return final }
-        let sum = (1...4).compactMap { s.quarterFinals[String($0)] }.reduce(0, +)
-        return (sum + 2) / 4
+        let finals = (1...4).compactMap { s.quarterFinals[String($0)] }.map { Mark(value: $0) }
+        return grade(finals, thresholds: thresholds)
     }
 }
 
@@ -162,4 +250,5 @@ enum Display {
         return whole * 100 + cents
     }
 }
+
 

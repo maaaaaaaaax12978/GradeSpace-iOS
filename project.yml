@@ -21,8 +21,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.gradespace.personal
         PRODUCT_NAME: GradeSpace
-        MARKETING_VERSION: "2.0"
-        CURRENT_PROJECT_VERSION: "3"
+        MARKETING_VERSION: "2.1"
+        CURRENT_PROJECT_VERSION: "4"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: NO
         CODE_SIGNING_ALLOWED: NO
@@ -30,9 +30,9 @@ targets:
     info:
       path: GradeSpace/Info.plist
       properties:
-        CFBundleDisplayName: GradeSpace
-        CFBundleShortVersionString: "2.0"
-        CFBundleVersion: "3"
+        CFBundleDisplayName: Балл
+        CFBundleShortVersionString: "2.1"
+        CFBundleVersion: "4"
         LSRequiresIPhoneOS: true
         ITSAppUsesNonExemptEncryption: false
         UILaunchScreen: {}
@@ -52,13 +52,27 @@ targets:
       base:
         GENERATE_INFOPLIST_FILE: YES
         CODE_SIGNING_ALLOWED: NO
+  GradeSpaceUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: GradeSpaceUITests
+    dependencies:
+      - target: GradeSpace
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGNING_ALLOWED: NO
 schemes:
   GradeSpace:
     build:
       targets:
         GradeSpace: all
         GradeSpaceTests: [test]
+        GradeSpaceUITests: [test]
     test:
       targets:
         - GradeSpaceTests
+        - GradeSpaceUITests
       gatherCoverageData: false
+

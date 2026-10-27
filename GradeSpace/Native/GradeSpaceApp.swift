@@ -3,12 +3,30 @@ import UniformTypeIdentifiers
 
 @main
 struct GradeSpaceApp: App {
-    @StateObject private var store = JournalStore()
+    @StateObject private var store: JournalStore
+    init() {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--ui-testing") {
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("Ball-UI-tests/journal.json")
+            try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+            let testStore = JournalStore(url: url)
+            testStore.update {
+                $0.subjects = [
+                    Subject(id: "math", name: "Математика", marks: [Mark(value: 4), Mark(value: 5)]),
+                    Subject(id: "physics", name: "Физика", color: 1, marks: [Mark(value: 3), Mark(value: 4)])
+                ]
+            }
+            _store = StateObject(wrappedValue: testStore)
+            return
+        }
+        #endif
+        _store = StateObject(wrappedValue: JournalStore())
+    }
     var body: some Scene {
         WindowGroup {
             RootView().environmentObject(store)
                 .preferredColorScheme(store.journal.theme == "dark" ? .dark : store.journal.theme == "light" ? .light : nil)
-                .tint(.indigo)
+                .tint(.teal)
         }
     }
 }
@@ -37,7 +55,7 @@ struct RootView: View {
                 tabs
             }
         }
-        .alert("GradeSpace", isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })) {
+        .alert("Балл", isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })) {
             Button("Понятно", role: .cancel) { store.error = nil }
         } message: { Text(store.error ?? "") }
     }
@@ -73,25 +91,53 @@ struct Surface: ViewModifier {
 
 struct QuarterPicker: View {
     @EnvironmentObject private var store: JournalStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Namespace private var selection
+    @ScaledMetric(relativeTo: .headline) private var rowHeight: CGFloat = 56
     var body: some View {
-        Picker("Четверть", selection: Binding(get: { store.journal.lastQuarter }, set: { n in store.update { $0.lastQuarter = n } })) {
-            Text("I четверть").tag(1)
-            Text("II").tag(2)
-            Text("III").tag(3)
-            Text("IV").tag(4)
-        }.pickerStyle(.segmented)
+        HStack(spacing: 4) {
+            ForEach(1...4, id: \.self) { quarter in
+                let active = store.journal.lastQuarter == quarter
+                Button {
+                    withAnimation(reduceMotion ? nil : .spring(response: 0.36, dampingFraction: 0.8)) {
+                        _ = store.update { $0.lastQuarter = quarter }
+                    }
+                } label: {
+                    Text(active ? "\(quarterRoman[quarter - 1]) четверть" : quarterRoman[quarter - 1])
+                        .font(.headline).lineLimit(1).minimumScaleFactor(0.75)
+                        .foregroundStyle(active ? Color.primary : Color.secondary)
+                        .frame(maxWidth: .infinity, minHeight: rowHeight)
+                        .contentShape(Capsule())
+                        .background {
+                            if active {
+                                Capsule().fill(Color.teal.opacity(0.2))
+                                    .matchedGeometryEffect(id: "quarter", in: selection)
+                            }
+                        }
+                }.buttonStyle(PressStyle())
+                    .accessibilityLabel("\(quarterRoman[quarter - 1]) четверть")
+                    .accessibilityIdentifier("quarter.\(quarter)")
+                    .accessibilityAddTraits(active ? .isSelected : [])
+            }
+        }.padding(4).background(.ultraThinMaterial, in: Capsule())
     }
 }
+
+private let quarterRoman = ["I", "II", "III", "IV"]
 
 struct SubjectsView: View {
     @EnvironmentObject private var store: JournalStore
     @State private var adding = false
     @State private var editing: Subject?
     @State private var deleting: Subject?
+    @State private var closingAll = false
     var body: some View {
         ScrollView {
             LazyVStack(spacing: 16) {
                 QuarterPicker()
+                if !store.journal.subjects.isEmpty {
+                    QuarterCompletionCard { closingAll = true }
+                }
                 HStack(alignment: .center) {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Каждая оценка\nменяет картину.").font(.title2.bold())
@@ -99,7 +145,7 @@ struct SubjectsView: View {
                     }
                     Spacer(minLength: 12)
                     Image(systemName: "sparkles.rectangle.stack.fill")
-                        .font(.system(size: 42)).foregroundStyle(.indigo.gradient)
+                        .font(.system(size: 42)).foregroundStyle(.teal.gradient)
                         .accessibilityHidden(true)
                 }.modifier(Surface())
                 if store.journal.subjects.isEmpty {
@@ -128,11 +174,107 @@ struct SubjectsView: View {
         }
         .sheet(isPresented: $adding) { SubjectEditor() }
         .sheet(item: $editing) { SubjectEditor(subject: $0) }
+        .sheet(isPresented: $closingAll) { QuarterCompletionSheet(quarter: store.journal.lastQuarter) }
         .confirmationDialog("Удалить предмет и все его оценки?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible) {
             Button("Удалить", role: .destructive) {
                 if let s = deleting { store.update { $0.subjects.removeAll { $0.id == s.id } } }
                 deleting = nil
             }
+        }
+    }
+}
+
+struct QuarterCompletionCard: View {
+    @EnvironmentObject private var store: JournalStore
+    let open: () -> Void
+    var body: some View {
+        let quarter = store.journal.lastQuarter
+        let total = store.journal.subjects.count
+        let closed = store.journal.subjects.filter { $0.closedQuarters.contains(quarter) }.count
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Label(closed == total ? "Четверть завершена" : "Итоги \(quarterRoman[quarter - 1]) четверти", systemImage: closed == total ? "checkmark.seal.fill" : "flag.checkered")
+                    .font(.headline)
+                Spacer(minLength: 0)
+            }
+            Text("Завершено предметов: \(closed) из \(total)").font(.subheadline).foregroundStyle(.secondary)
+            Button(action: open) {
+                Text(closed == total ? "Посмотреть итоги" : "Завершить всю четверть")
+                    .frame(maxWidth: .infinity, minHeight: 32)
+            }.buttonStyle(.borderedProminent).controlSize(.large)
+                .accessibilityIdentifier("quarter.review.all")
+        }.modifier(Surface())
+    }
+}
+
+struct QuarterCompletionSheet: View {
+    @EnvironmentObject private var store: JournalStore
+    @Environment(\.dismiss) private var dismiss
+    let quarter: Int
+    @State private var finals: [String: Int] = [:]
+    @State private var loaded = false
+    private var openSubjects: [Subject] { store.journal.subjects.filter { !$0.closedQuarters.contains(quarter) } }
+    private var canFinish: Bool {
+        !openSubjects.isEmpty && openSubjects.allSatisfy { (1...5).contains(finals[$0.id] ?? 0) }
+    }
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Text("Проверьте итоги всех предметов. Расчёт учитывает настоящие оценки, их веса и общий порог школы.")
+                        .font(.subheadline)
+                } footer: { Text("Призрачные оценки не входят в итог. Зафиксированные ранее итоги сохранятся.") }
+                Section("Предметы") {
+                    ForEach(store.journal.subjects) { subject in
+                        resultRow(subject)
+                    }
+                }
+                if !openSubjects.isEmpty {
+                    Section {
+                        Button {
+                            let results = Dictionary(uniqueKeysWithValues: openSubjects.compactMap { s in
+                                finals[s.id].map { (s.id, $0) }
+                            })
+                            if store.finishQuarter(quarter, finals: results) { dismiss() }
+                        } label: {
+                            Text("Завершить всю четверть").bold().frame(maxWidth: .infinity, minHeight: 44)
+                        }.disabled(!canFinish).accessibilityIdentifier("quarter.finish.all")
+                    } footer: {
+                        Text(canFinish ? "Все итоги будут сохранены одним действием. Оценки завершённой четверти будут защищены от изменений." : "Для предметов без настоящих оценок выберите итог учителя вручную. После этого можно завершить четверть целиком.")
+                    }
+                }
+            }.navigationTitle("\(quarterRoman[quarter - 1]) четверть")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Закрыть") { dismiss() } } }
+                .onAppear {
+                    guard !loaded else { return }
+                    finals = store.journal.suggestedFinals(for: quarter)
+                    loaded = true
+                }
+        }.presentationDetents([.large])
+    }
+    @ViewBuilder
+    private func resultRow(_ subject: Subject) -> some View {
+        if subject.closedQuarters.contains(quarter) {
+            HStack {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(subject.name).font(.headline)
+                    Label("Уже завершён", systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Text(String(subject.quarterFinals[String(quarter)] ?? 0)).font(.title2.bold())
+            }.padding(.vertical, 5)
+        } else {
+            VStack(alignment: .leading, spacing: 7) {
+                Text(subject.name).font(.headline)
+                let marks = subject.marks(in: quarter)
+                Text(marks.isEmpty ? "Нет настоящих оценок — укажите итог вручную" : "Средний \(Display.average(marks)) · оценок: \(marks.count)")
+                    .font(.caption).foregroundStyle(.secondary)
+                Picker("Итог", selection: Binding(get: { finals[subject.id] ?? 0 }, set: { finals[subject.id] = $0 })) {
+                    Text("Указать оценку").tag(0)
+                    ForEach(1...5, id: \.self) { Text(String($0)).tag($0) }
+                }.accessibilityIdentifier("quarter.final.\(subject.id)")
+            }.padding(.vertical, 5)
         }
     }
 }
@@ -151,8 +293,12 @@ struct SubjectCard: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(subject.name).font(.headline).foregroundStyle(.primary).multilineTextAlignment(.leading)
                 HStack(spacing: 5) {
-                    Text("Оценок: \(marks.count)")
-                    if forecast.count > marks.count { Text("· прогноз \(Display.average(forecast))").foregroundStyle(.indigo) }
+                    if subject.closedQuarters.contains(store.journal.lastQuarter) {
+                        Text("Завершён · итог \(subject.quarterFinals[String(store.journal.lastQuarter)] ?? 0)")
+                    } else {
+                        Text("Оценок: \(marks.count)")
+                        if forecast.count > marks.count { Text("· прогноз \(Display.average(forecast))").foregroundStyle(.teal) }
+                    }
                 }.font(.caption).foregroundStyle(.secondary)
             }
             Spacer(minLength: 4)
@@ -231,14 +377,19 @@ struct AverageHero: View {
                 HStack(alignment: .firstTextBaseline) {
                     Text("С призрачными").font(.subheadline)
                     Spacer()
-                    Text(Display.average(forecast)).font(.title2.bold().monospacedDigit()).contentTransition(.numericText())
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Text(Display.average(forecast)).font(.title2.bold().monospacedDigit()).contentTransition(.numericText())
+                        if let grade = GradeMath.grade(forecast, thresholds: store.journal.thresholds) {
+                            Text("Итог \(grade)").font(.caption.bold())
+                        }
+                    }
                 }.foregroundStyle(.white)
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
             } else {
                 Text("Примерьте будущие оценки ниже").font(.subheadline).foregroundStyle(.white.opacity(0.8))
             }
         }.padding(24).frame(maxWidth: .infinity, alignment: .leading)
-            .background(LinearGradient(colors: [Color(red: 0.39, green: 0.34, blue: 0.95), Color(red: 0.25, green: 0.25, blue: 0.65)], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 32))
+            .background(LinearGradient(colors: [Color(red: 0.0, green: 0.65, blue: 0.51), Color(red: 0.0, green: 0.34, blue: 0.33)], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 32))
             .onAppear { floating = !reduceMotion }
             .animation(reduceMotion ? nil : .spring(response: 0.5, dampingFraction: 0.82), value: forecast)
             .animation(reduceMotion ? nil : .spring(response: 0.5, dampingFraction: 0.82), value: actual)
@@ -294,7 +445,7 @@ struct SubjectView: View {
 
     private func annualCard(_ s: Subject) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack { Label("Учебный год", systemImage: "calendar").font(.headline); Spacer(); Text(GradeMath.annual(s).map(String.init) ?? "—").font(.title2.bold()) }
+            HStack { Label("Учебный год", systemImage: "calendar").font(.headline); Spacer(); Text(GradeMath.annual(s, thresholds: store.journal.thresholds).map(String.init) ?? "—").font(.title2.bold()) }
             HStack {
                 ForEach(1...4, id: \.self) { q in
                     VStack(spacing: 7) {
@@ -303,7 +454,7 @@ struct SubjectView: View {
                     }.frame(maxWidth: .infinity)
                 }
             }
-            Text("Годовая — округлённое среднее итогов четырёх завершённых четвертей.").font(.caption).foregroundStyle(.secondary)
+            Text("Годовая — среднее итогов четырёх завершённых четвертей с общим порогом школы.").font(.caption).foregroundStyle(.secondary)
         }.modifier(Surface())
     }
 
@@ -332,6 +483,7 @@ struct MarkSection: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let subjectID: String
     let ghost: Bool
+    var showQuickAdd = true
     @State private var selected: Mark?
     @State private var adding = false
     @State private var clear = false
@@ -364,16 +516,16 @@ struct MarkSection: View {
                                     Text(String(mark.value)).font(.system(.title3, design: .rounded, weight: .bold))
                                     if mark.weight > 1 { Text("×\(mark.weight)").font(.caption2) }
                                 }.frame(maxWidth: .infinity, minHeight: 48)
-                                    .foregroundStyle(ghost ? Color.indigo : .primary)
-                                    .background((ghost ? Color.indigo : Color.primary).opacity(0.07), in: RoundedRectangle(cornerRadius: 15))
-                                    .overlay(RoundedRectangle(cornerRadius: 15).strokeBorder(ghost ? Color.indigo.opacity(0.45) : .clear, style: StrokeStyle(lineWidth: 1, dash: ghost ? [4, 3] : [])))
+                                    .foregroundStyle(ghost ? Color.teal : .primary)
+                                    .background((ghost ? Color.teal : Color.primary).opacity(0.07), in: RoundedRectangle(cornerRadius: 15))
+                                    .overlay(RoundedRectangle(cornerRadius: 15).strokeBorder(ghost ? Color.teal.opacity(0.45) : .clear, style: StrokeStyle(lineWidth: 1, dash: ghost ? [4, 3] : [])))
                             }.buttonStyle(PressStyle())
                                 .accessibilityLabel("\(ghost ? "Призрачная оценка" : "Оценка") \(mark.value), вес \(mark.weight). \(mark.note). Изменить")
                                 .transition(.scale(scale: 0.65).combined(with: .opacity))
                         }
                     }
                 }
-                HStack(spacing: 8) {
+                if showQuickAdd { HStack(spacing: 8) {
                     ForEach(1...5, id: \.self) { value in
                         Button {
                             perform {
@@ -381,11 +533,11 @@ struct MarkSection: View {
                             }
                         } label: {
                             Text(String(value)).font(.title3.bold()).frame(maxWidth: .infinity, minHeight: 48)
-                                .background(ghost ? Color.indigo.opacity(0.12) : Color.indigo, in: RoundedRectangle(cornerRadius: 15))
-                                .foregroundStyle(ghost ? Color.indigo : .white)
+                                .background(ghost ? Color.teal.opacity(0.12) : Color.teal, in: RoundedRectangle(cornerRadius: 15))
+                                .foregroundStyle(ghost ? Color.teal : .white)
                         }.buttonStyle(PressStyle()).accessibilityLabel("Добавить \(ghost ? "призрачную " : "")оценку \(value)")
                     }
-                }.disabled(s.marks.count >= 20_000)
+                }.disabled(s.marks.count >= 20_000) }
                 Button("Оценка с весом и заметкой", systemImage: "plus.circle") { adding = true }.font(.subheadline)
                     .disabled(s.marks.count >= 20_000)
                 if ghost {
@@ -473,16 +625,85 @@ struct ForecastView: View {
                     Picker("Предмет", selection: Binding(get: { id }, set: { selected = $0 })) {
                         ForEach(store.journal.subjects) { Text($0.name).tag($0.id) }
                     }.pickerStyle(.menu).frame(maxWidth: .infinity, alignment: .leading).modifier(Surface())
-                    if let s = store.subject(id) {
-                        AverageHero(actual: s.marks(in: store.journal.lastQuarter), forecast: s.marks(in: store.journal.lastQuarter, forecast: true))
-                        if s.closedQuarters.contains(store.journal.lastQuarter) {
-                            ContentUnavailableView("Четверть завершена", systemImage: "lock.fill", description: Text("Выберите другую четверть или откройте эту снова в предмете."))
-                        } else { MarkSection(subjectID: id, ghost: true).id(id) }
-                    }
-                    Text("Настоящий средний не меняется от призрачных оценок. Каждый предмет хранит свой сценарий.").font(.caption).foregroundStyle(.secondary)
+                    ForecastSubjectContent(subjectID: id, quarter: store.journal.lastQuarter)
+                        .id("\(id):\(store.journal.lastQuarter)")
                 }
             }.padding(20).padding(.bottom, 30)
         }.background(Color(uiColor: .systemGroupedBackground)).navigationTitle("Что, если…")
+    }
+}
+
+struct ForecastSubjectContent: View {
+    @EnvironmentObject private var store: JournalStore
+    let subjectID: String
+    let quarter: Int
+    @State private var trial = TrialGrades()
+    var body: some View {
+        if let subject = store.subject(subjectID) {
+            let saved = subject.marks(in: quarter, forecast: true)
+            let preview = saved + trial.previewMarks(in: quarter)
+            AverageHero(actual: subject.marks(in: quarter), forecast: preview)
+            if subject.closedQuarters.contains(quarter) {
+                ContentUnavailableView("Четверть завершена", systemImage: "lock.fill", description: Text("Выберите другую четверть или откройте эту снова в предмете."))
+            } else {
+                TrialPanel(subjectID: subjectID, quarter: quarter, trial: $trial, preview: preview)
+                MarkSection(subjectID: subjectID, ghost: true, showQuickAdd: false)
+            }
+            Text("Примерка сбрасывается при смене предмета или четверти. Настоящие оценки от неё не меняются.")
+                .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+struct TrialPanel: View {
+    @EnvironmentObject private var store: JournalStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let subjectID: String
+    let quarter: Int
+    @Binding var trial: TrialGrades
+    let preview: [Mark]
+    @State private var savedFeedback = 0
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Label("Быстрая примерка", systemImage: "wand.and.stars").font(.headline)
+            Text("Выберите, сколько разных оценок хотите примерить. Средний наверху изменится сразу — сохранять оценки для расчёта не нужно.")
+                .font(.subheadline).foregroundStyle(.secondary)
+            ForEach(Array((1...5).reversed()), id: \.self) { grade in
+                Stepper(value: Binding(get: { trial.quantity(for: grade) }, set: { count in
+                    withAnimation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 0.8)) {
+                        trial.setQuantity(count, for: grade)
+                    }
+                }), in: 0...100) {
+                    HStack(spacing: 12) {
+                        Text(String(grade)).font(.title3.bold()).frame(width: 42, height: 44)
+                            .background(Color.teal.opacity(0.12), in: RoundedRectangle(cornerRadius: 14))
+                        Text("× \(trial.quantity(for: grade))").font(.headline.monospacedDigit()).contentTransition(.numericText())
+                    }
+                }.accessibilityLabel("Количество оценок \(grade)")
+                    .accessibilityValue(String(trial.quantity(for: grade)))
+                    .accessibilityIdentifier("trial.grade.\(grade)")
+            }
+            let needed = GradeMath.fivesNeeded(preview, threshold: store.journal.thresholds.five)
+            Label(needed.map { $0 == 0 ? "Пятёрка уже в прогнозе" : "До пятёрки: ещё \($0) оценок «5» с весом 1" } ?? "При пороге 5,00 достичь пятёрки новыми оценками нельзя", systemImage: "scope")
+                .font(.caption).foregroundStyle(.secondary)
+            Button {
+                if store.saveTrial(trial, subjectID: subjectID, quarter: quarter) {
+                    trial = TrialGrades()
+                    savedFeedback += 1
+                }
+            } label: {
+                Text("Добавить в сценарий (\(trial.count))").frame(maxWidth: .infinity, minHeight: 30)
+            }.buttonStyle(.borderedProminent).controlSize(.large).disabled(trial.count == 0)
+                .accessibilityIdentifier("trial.save")
+            Button("Сбросить примерку", role: .destructive) {
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { trial = TrialGrades() }
+            }.frame(maxWidth: .infinity, minHeight: 44).disabled(trial.count == 0)
+                .accessibilityIdentifier("trial.reset")
+            Text("Оценки сохранятся только по кнопке «Добавить в сценарий». Вес каждой — 1.")
+                .font(.caption).foregroundStyle(.secondary)
+        }.modifier(Surface())
+            .sensoryFeedback(.selection, trigger: trial) { _, _ in store.journal.haptics }
+            .sensoryFeedback(.success, trigger: savedFeedback) { _, _ in store.journal.haptics }
     }
 }
 
@@ -502,12 +723,12 @@ struct SettingsView: View {
                 Toggle("Тактильный отклик", isOn: Binding(get: { store.journal.haptics }, set: { n in store.update { $0.haptics = n } }))
             }.disabled(store.loadFailed)
             Section {
-                ForEach([5, 4, 3], id: \.self) { grade in
+                ForEach([5, 4, 3, 2], id: \.self) { grade in
                     HStack { Text("Оценка \(grade)"); Spacer(); Text("от \(Display.threshold(store.journal.thresholds.value(for: grade)))").foregroundStyle(.secondary).monospacedDigit() }
                 }
-                Button("Изменить пороги") { thresholds = true }
+                Button("Изменить общий порог") { thresholds = true }
             } header: { Text("Правила школы") } footer: {
-                Text("Порог включается: при среднем ровно 4,60 и пороге 4,60 получится 5. Все оценки имеют вес 1, если вы не указали другой. Завершённые четверти сохраняют зафиксированный итог.")
+                Text("Один порог действует для всех оценок: 4,60 → 5, 3,60 → 4, 2,60 → 3. Граница включается. Все оценки имеют вес 1, если вы не указали другой. Завершённые четверти сохраняют зафиксированный итог.")
             }.disabled(store.loadFailed)
             Section("Резервная копия") {
                 Button("Сохранить в Файлы", systemImage: "square.and.arrow.up") {
@@ -517,7 +738,7 @@ struct SettingsView: View {
                 Button("Восстановить JSON-копию", systemImage: "square.and.arrow.down") { importing = true }
             }
             Section {
-                Text("GradeSpace 2.0").font(.headline)
+                Text("Балл 2.1").font(.headline)
                 Text("Ваши оценки хранятся на iPhone. Сохраните резервную копию перед удалением или переустановкой приложения.").font(.subheadline).foregroundStyle(.secondary)
                 Text("Анимации учитывают настройку iPhone «Уменьшение движения».").font(.caption).foregroundStyle(.secondary)
             }
@@ -545,41 +766,49 @@ struct SettingsView: View {
 struct ThresholdEditor: View {
     @EnvironmentObject private var store: JournalStore
     @Environment(\.dismiss) private var dismiss
-    @State private var three = ""
-    @State private var four = ""
     @State private var five = ""
     private var draft: Thresholds? {
-        guard let a = Display.parseThreshold(three), let b = Display.parseThreshold(four), let c = Display.parseThreshold(five) else { return nil }
-        let t = Thresholds(three: a, four: b, five: c)
-        return t.isValid ? t : nil
+        guard let value = Display.parseThreshold(five), (400...500).contains(value) else { return nil }
+        return Thresholds(five: value)
     }
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    row("Тройка от", text: $three)
-                    row("Четвёрка от", text: $four)
-                    row("Пятёрка от", text: $five)
-                } footer: {
-                    Text("Укажите пороги до двух знаков после запятой. Они должны возрастать и быть не больше 5,00. Например: 2,50 → 3,50 → 4,60.")
+                    HStack {
+                        Text("Пятёрка начинается с")
+                        Spacer()
+                        TextField("4,60", text: $five).keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing).frame(width: 95)
+                            .accessibilityLabel("Общий порог: пятёрка от")
+                            .accessibilityIdentifier("threshold.common")
+                    }
+                } header: { Text("Один порог для всех оценок") } footer: {
+                    Text("Например, 4,60 для пятёрки автоматически означает 3,60 для четвёрки, 2,60 для тройки и 1,60 для двойки. Правило применяется также к расчётной годовой.")
                 }
-                if draft == nil { Text("Проверьте значения и порядок порогов.").font(.subheadline).foregroundStyle(.red) }
-            }.navigationTitle("Пороги оценок")
+                if let draft {
+                    Section("Получится автоматически") {
+                        ForEach([5, 4, 3, 2], id: \.self) { grade in
+                            HStack {
+                                Text("Оценка \(grade)")
+                                Spacer()
+                                Text("от \(Display.threshold(draft.value(for: grade)))").monospacedDigit().foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                } else {
+                    Text("Укажите значение от 4,00 до 5,00, не больше двух знаков после запятой.")
+                        .font(.subheadline).foregroundStyle(.red)
+                }
+            }.navigationTitle("Общий порог")
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) { Button("Отмена") { dismiss() } }
                     ToolbarItem(placement: .confirmationAction) {
                         Button("Сохранить") { if let draft, store.update({ $0.thresholds = draft }) { dismiss() } }.disabled(draft == nil)
                     }
                 }
-                .onAppear {
-                    three = Display.threshold(store.journal.thresholds.three)
-                    four = Display.threshold(store.journal.thresholds.four)
-                    five = Display.threshold(store.journal.thresholds.five)
-                }
-        }.presentationDetents([.medium, .large])
-    }
-    private func row(_ title: String, text: Binding<String>) -> some View {
-        HStack { Text(title); Spacer(); TextField("4,60", text: text).keyboardType(.decimalPad).multilineTextAlignment(.trailing).frame(width: 100).accessibilityLabel(title) }
+                .onAppear { five = Display.threshold(store.journal.thresholds.five) }
+        }.presentationDetents([.large])
     }
 }
 
@@ -588,3 +817,4 @@ struct ShareSheet: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UIActivityViewController { UIActivityViewController(activityItems: [url], applicationActivities: nil) }
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
+

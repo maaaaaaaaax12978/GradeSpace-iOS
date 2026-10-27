@@ -68,11 +68,40 @@ final class JournalStore: ObservableObject {
         }
     }
 
+    @discardableResult
+    func finishQuarter(_ quarter: Int, finals: [String: Int]) -> Bool {
+        guard !loadFailed else { return false }
+        var next = journal
+        do {
+            try next.finishQuarter(quarter, finals: finals)
+            return commit(next)
+        } catch {
+            self.error = error.localizedDescription
+            return false
+        }
+    }
+
+    @discardableResult
+    func saveTrial(_ trial: TrialGrades, subjectID: String, quarter: Int) -> Bool {
+        guard !loadFailed, trial.count > 0, (1...4).contains(quarter),
+              let subject = subject(subjectID), !subject.closedQuarters.contains(quarter) else {
+            error = "Примерку нельзя добавить: проверьте предмет и выбранную четверть."
+            return false
+        }
+        guard subject.marks.count + trial.count <= 20_000 else {
+            error = "Слишком много оценок в предмете. Примерка не сохранена."
+            return false
+        }
+        let marks = trial.expandedMarks(in: quarter)
+        return editSubject(subjectID) { $0.marks.append(contentsOf: marks) }
+    }
+
     func exportURL() throws -> URL {
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("GradeSpace-export", isDirectory: true)
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("Ball-export", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let output = folder.appendingPathComponent("GradeSpace.json")
+        let output = folder.appendingPathComponent("Ball.json")
         try JSONEncoder().encode(journal).write(to: output, options: .atomic)
         return output
     }
 }
+

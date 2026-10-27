@@ -10,3 +10,4 @@ let package = Package(
         .testTarget(name: "GradeCoreTests", dependencies: ["GradeCore"], path: "GradeSpaceTests")
     ]
 )
+
