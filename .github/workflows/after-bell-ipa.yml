@@ -1,0 +1,49 @@
+name: After Bell - iPhone IPA
+on:
+  push:
+    branches: [codex/after-bell-ipa]
+    paths:
+      - AfterBell/**
+      - after-bell-project.yml
+      - scripts/after-bell-icons.py
+      - .github/workflows/after-bell-ipa.yml
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare icons and project
+        run: |
+          python3 scripts/after-bell-icons.py
+          if ! command -v xcodegen >/dev/null 2>&1; then brew install xcodegen; fi
+          xcodegen generate --spec after-bell-project.yml
+          node --check AfterBell/Web/app.js
+      - name: Compile for iPhone
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -project AfterBell.xcodeproj -scheme AfterBell -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath after-bell-build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY='' build 2>&1 | tee after-bell-build.log
+      - name: Package IPA
+        run: |
+          set -eu
+          test -f after-bell-build/Build/Products/Release-iphoneos/AfterBell.app/AfterBell
+          test -f after-bell-build/Build/Products/Release-iphoneos/AfterBell.app/Web/index.html
+          mkdir -p after-bell-package/Payload
+          cp -R after-bell-build/Build/Products/Release-iphoneos/AfterBell.app after-bell-package/Payload/
+          cd after-bell-package
+          zip -r -q ../AfterBell-unsigned.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AfterBell-IPA
+          path: AfterBell-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: AfterBell-build-log
+          path: after-bell-build.log
+          if-no-files-found: ignore
