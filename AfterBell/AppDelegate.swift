@@ -44,7 +44,7 @@ final class PlannerController: UIViewController, WKNavigationDelegate, WKScriptM
             initial = json
             savedTheme = (object as? [String: Any])?["theme"] as? String ?? "system"
         }
-        applyAppearance(dark: savedTheme == "dark" || (savedTheme != "light" && traitCollection.userInterfaceStyle == .dark))
+        applyAppearance(dark: savedTheme == "dark" || (savedTheme != "light" && traitCollection.userInterfaceStyle == .dark), mode: savedTheme)
         controller.addUserScript(WKUserScript(source: "window.__afterBellNative = true; window.__afterBellSaved = \(initial);", injectionTime: .atDocumentStart, forMainFrameOnly: true))
         webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = self
@@ -67,7 +67,8 @@ final class PlannerController: UIViewController, WKNavigationDelegate, WKScriptM
         NotificationCenter.default.addObserver(self, selector: #selector(resumeTimer), name: UIApplication.didBecomeActiveNotification, object: nil)
     }
 
-    private func applyAppearance(dark: Bool) {
+    private func applyAppearance(dark: Bool, mode: String) {
+        overrideUserInterfaceStyle = mode == "dark" ? .dark : mode == "light" ? .light : .unspecified
         usesDarkTheme = dark
         let color = dark ? UIColor(red: 23/255.0, green: 24/255.0, blue: 35/255.0, alpha: 1) : UIColor(red: 234/255.0, green: 233/255.0, blue: 247/255.0, alpha: 1)
         view.backgroundColor = color
@@ -77,7 +78,7 @@ final class PlannerController: UIViewController, WKNavigationDelegate, WKScriptM
     }
 
     @objc private func resumeTimer() {
-        webView?.evaluateJavaScript("if (typeof tick === 'function') tick();", completionHandler: nil)
+        webView?.evaluateJavaScript("if (typeof applyTheme === 'function') applyTheme(); if (typeof tick === 'function') tick();", completionHandler: nil)
     }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -85,7 +86,7 @@ final class PlannerController: UIViewController, WKNavigationDelegate, WKScriptM
               message.frameInfo.request.url?.isFileURL == true,
               JSONSerialization.isValidJSONObject(message.body) else { return }
         if message.name == "appearance", let body = message.body as? [String: Any], let dark = body["dark"] as? Bool {
-            applyAppearance(dark: dark)
+            applyAppearance(dark: dark, mode: body["mode"] as? String ?? "system")
             return
         }
         do {
