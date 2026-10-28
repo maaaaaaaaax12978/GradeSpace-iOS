@@ -16,6 +16,8 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
 final class PlannerController: UIViewController, WKNavigationDelegate, WKScriptMessageHandler {
     private var webView: WKWebView!
     private var webRoot: URL!
+    private var usesDarkTheme = false
+    override var preferredStatusBarStyle: UIStatusBarStyle { usesDarkTheme ? .lightContent : .darkContent }
     private let journalURL: URL = {
         let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("AfterBell", isDirectory: true)
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -25,20 +27,24 @@ final class PlannerController: UIViewController, WKNavigationDelegate, WKScriptM
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = UIColor(red: 0.93, green: 0.92, blue: 0.97, alpha: 1)
-        overrideUserInterfaceStyle = .light
+        overrideUserInterfaceStyle = .unspecified
         let controller = WKUserContentController()
         controller.add(self, name: "persist")
         controller.add(self, name: "exportBackup")
+        controller.add(self, name: "appearance")
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .default()
         config.userContentController = controller
         var initial = "null"
+        var savedTheme = "system"
         if let data = try? Data(contentsOf: journalURL),
            let object = try? JSONSerialization.jsonObject(with: data),
            let valid = try? JSONSerialization.data(withJSONObject: object, options: [.fragmentsAllowed]),
            let json = String(data: valid, encoding: .utf8) {
             initial = json
+            savedTheme = (object as? [String: Any])?["theme"] as? String ?? "system"
         }
+        applyAppearance(dark: savedTheme == "dark" || (savedTheme != "light" && traitCollection.userInterfaceStyle == .dark))
         controller.addUserScript(WKUserScript(source: "window.__afterBellNative = true; window.__afterBellSaved = \(initial);", injectionTime: .atDocumentStart, forMainFrameOnly: true))
         webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = self
@@ -61,6 +67,15 @@ final class PlannerController: UIViewController, WKNavigationDelegate, WKScriptM
         NotificationCenter.default.addObserver(self, selector: #selector(resumeTimer), name: UIApplication.didBecomeActiveNotification, object: nil)
     }
 
+    private func applyAppearance(dark: Bool) {
+        usesDarkTheme = dark
+        let color = dark ? UIColor(red: 23/255.0, green: 24/255.0, blue: 35/255.0, alpha: 1) : UIColor(red: 234/255.0, green: 233/255.0, blue: 247/255.0, alpha: 1)
+        view.backgroundColor = color
+        webView?.backgroundColor = color
+        webView?.scrollView.backgroundColor = color
+        setNeedsStatusBarAppearanceUpdate()
+    }
+
     @objc private func resumeTimer() {
         webView?.evaluateJavaScript("if (typeof tick === 'function') tick();", completionHandler: nil)
     }
@@ -69,6 +84,10 @@ final class PlannerController: UIViewController, WKNavigationDelegate, WKScriptM
         guard message.frameInfo.isMainFrame,
               message.frameInfo.request.url?.isFileURL == true,
               JSONSerialization.isValidJSONObject(message.body) else { return }
+        if message.name == "appearance", let body = message.body as? [String: Any], let dark = body["dark"] as? Bool {
+            applyAppearance(dark: dark)
+            return
+        }
         do {
             let data = try JSONSerialization.data(withJSONObject: message.body, options: [.prettyPrinted, .sortedKeys])
             guard data.count < 4_000_000 else { return }
@@ -78,6 +97,7 @@ final class PlannerController: UIViewController, WKNavigationDelegate, WKScriptM
                 let url = FileManager.default.temporaryDirectory.appendingPathComponent("posle-zvonka-backup.json")
                 try data.write(to: url, options: .atomic)
                 let sheet = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+                sheet.overrideUserInterfaceStyle = usesDarkTheme ? .dark : .light
                 sheet.popoverPresentationController?.sourceView = view
                 sheet.popoverPresentationController?.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 1, height: 1)
                 present(sheet, animated: true)

@@ -30,8 +30,8 @@ targets:
       path: AfterBell/Info.plist
       properties:
         CFBundleDisplayName: После звонка
-        CFBundleShortVersionString: "1.0"
-        CFBundleVersion: "1"
+        CFBundleShortVersionString: "1.1"
+        CFBundleVersion: "2"
         LSRequiresIPhoneOS: true
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
