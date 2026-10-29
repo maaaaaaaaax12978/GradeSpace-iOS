@@ -107,8 +107,12 @@ class LiquidTabBar {
         const dt=this.lastTime?Math.min(1/30,Math.max(1/240,(time-this.lastTime)/1000)):1/60;
         this.lastTime=time;
         const pressed=this.pointer!==null,k=pressed?900:520,damping=pressed?50:34;
-        this.vx+=((this.target-this.x)*k-this.vx*damping)*dt;this.x+=this.vx*dt;
-        this.vy+=((this.targetY-this.y)*500-this.vy*35)*dt;this.y+=this.vy*dt;
+        // Substeps keep the glass spring stable even when frames fall to 30 FPS.
+        const steps=Math.ceil(dt*120),h=dt/steps;
+        for(let i=0;i<steps;i++){
+            this.vx+=((this.target-this.x)*k-this.vx*damping)*h;this.x+=this.vx*h;
+            this.vy+=((this.targetY-this.y)*500-this.vy*35)*h;this.y+=this.vy*h;
+        }
         this.press+=((pressed?1:0)-this.press)*(1-Math.exp(-dt*22));
         this.bounce*=Math.exp(-dt*7);
         const moving=Math.abs(this.target-this.x)>.035||Math.abs(this.vx)>.08||Math.abs(this.targetY-this.y)>.02||Math.abs(this.vy)>.08||Math.abs((pressed?1:0)-this.press)>.002||this.bounce>.002;
