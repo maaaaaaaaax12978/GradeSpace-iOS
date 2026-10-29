@@ -17,6 +17,7 @@ final class PlannerController: UIViewController, WKNavigationDelegate, WKScriptM
     private var webView: WKWebView!
     private var webRoot: URL!
     private var usesDarkTheme = false
+    private let tabFeedback = UISelectionFeedbackGenerator()
     override var preferredStatusBarStyle: UIStatusBarStyle { usesDarkTheme ? .lightContent : .darkContent }
     private let journalURL: URL = {
         let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("AfterBell", isDirectory: true)
@@ -32,6 +33,7 @@ final class PlannerController: UIViewController, WKNavigationDelegate, WKScriptM
         controller.add(self, name: "persist")
         controller.add(self, name: "exportBackup")
         controller.add(self, name: "appearance")
+        controller.add(self, name: "tabHaptic")
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .default()
         config.userContentController = controller
@@ -85,6 +87,11 @@ final class PlannerController: UIViewController, WKNavigationDelegate, WKScriptM
         guard message.frameInfo.isMainFrame,
               message.frameInfo.request.url?.isFileURL == true,
               JSONSerialization.isValidJSONObject(message.body) else { return }
+        if message.name == "tabHaptic" {
+            tabFeedback.selectionChanged()
+            tabFeedback.prepare()
+            return
+        }
         if message.name == "appearance", let body = message.body as? [String: Any], let dark = body["dark"] as? Bool {
             applyAppearance(dark: dark, mode: body["mode"] as? String ?? "system")
             return

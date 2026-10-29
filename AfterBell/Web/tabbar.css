@@ -1,0 +1,21 @@
+/* The indicator is an actual lens, continuously driven by touch and spring physics. */
+.mobile-bottom.interactive-tabbar{isolation:isolate;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;transition:transform .28s cubic-bezier(.2,.9,.25,1.2),box-shadow .25s,border-color .25s;overflow:visible}
+.mobile-bottom.interactive-tabbar:before{display:none}
+.mobile-bottom.interactive-tabbar.is-scrubbing{transform:translateX(-50%) scale(1.018);box-shadow:inset 0 1px 2px #ffffffc9,0 12px 38px #62517528;border-color:#fffffff0}
+.tabbar-lens{position:absolute;z-index:0;top:6px;bottom:6px;left:8px;border-radius:23px;pointer-events:none;will-change:transform;transform-origin:50% 50%;background:radial-gradient(ellipse at var(--lens-shine,50%) 0%,#ffffffa8,transparent 72%),linear-gradient(145deg,#ffffff75,#f0e6ff30 50%,#ffffff80);border:1px solid #ffffffe6;box-shadow:inset 0 1.5px 2px #fff,inset 0 -1px 2px #d3bced55,inset 2px 0 5px #ffffffaa,inset -2px 0 5px #fff9,0 2px 8px #5e47711a;backdrop-filter:blur(15px) saturate(1.7);-webkit-backdrop-filter:blur(15px) saturate(1.7);overflow:hidden}
+.tabbar-lens-shine{position:absolute;inset:0;border-radius:inherit;opacity:var(--lens-glow,.32);background:linear-gradient(110deg,transparent 6%,#ffffff99 20%,transparent 40%,transparent 65%,#ffffff55 86%,transparent);pointer-events:none}
+.mobile-bottom.interactive-tabbar button{position:relative;z-index:1;overflow:visible;touch-action:none;transform:none;transition:color .15s;background:transparent!important;box-shadow:none!important;min-width:0}
+.mobile-bottom.interactive-tabbar button:active{transform:none}
+.mobile-bottom.interactive-tabbar button svg{transform:translateY(var(--tab-lift,0px)) scale(var(--tab-magnify,1));transform-origin:50% 55%;transition:stroke-width .18s;will-change:transform;animation:none}
+.mobile-bottom.interactive-tabbar button.active svg{stroke-width:2}
+.mobile-bottom.interactive-tabbar .nav-label{transform:translateY(calc(var(--tab-lift,0px)*.25));transition:color .14s;pointer-events:none}
+.mobile-bottom.interactive-tabbar.is-scrubbing button{color:#998ca7}
+.mobile-bottom.interactive-tabbar.is-scrubbing button.is-preview{color:var(--purple-dark)}
+.mobile-bottom.interactive-tabbar.is-scrubbing .is-preview svg{stroke-width:2}
+.mobile-bottom.interactive-tabbar button:focus-visible{outline:2px solid #9b7cd5;outline-offset:1px}
+:root[data-theme="dark"] .tabbar-lens{background:radial-gradient(ellipse at var(--lens-shine,50%) 0%,#c9b4ff30,transparent 72%),linear-gradient(145deg,#b39bd91c,#ffffff08 55%,#d4bdff14);border-color:#decaff47;box-shadow:inset 0 1.5px 2px #ffffff38,inset 0 -1px 2px #ad82ed20,inset 2px 0 5px #ffffff14,inset -2px 0 5px #ffffff0d,0 3px 12px #0002}
+:root[data-theme="dark"] .tabbar-lens-shine{background:linear-gradient(110deg,transparent 6%,#d4c1ff60 20%,transparent 40%,transparent 65%,#e0d2ff33 86%,transparent)}
+:root[data-theme="dark"] .mobile-bottom.interactive-tabbar.is-scrubbing{box-shadow:inset 0 1px 2px #ffffff16,0 12px 38px #0004;border-color:#e2d1ff42}
+:root[data-theme="dark"] .mobile-bottom.interactive-tabbar.is-scrubbing button{color:#aa9cba}
+:root[data-theme="dark"] .mobile-bottom.interactive-tabbar.is-scrubbing button.is-preview{color:#ddc7ff}
+@media(prefers-reduced-motion:reduce){.mobile-bottom.interactive-tabbar,.mobile-bottom.interactive-tabbar.is-scrubbing{transform:translateX(-50%);transition:none}.mobile-bottom.interactive-tabbar button svg{transform:none;will-change:auto}.tabbar-lens{will-change:auto}}
